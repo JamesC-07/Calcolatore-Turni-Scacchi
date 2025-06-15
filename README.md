@@ -1,4 +1,4 @@
-# Calcolatore-Turni-Scacchi
+# Calcolatore Turni Per Tornei di Scacchi
 Un calcolatore per la creazione di turni nei tornei svizzeri di scacchi.
 
 ## TODO:
