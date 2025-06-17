@@ -9,10 +9,16 @@ class TournamentManager {
 
     // Inizializza tutti gli event listeners
     initEventListeners() {
-        document.getElementById("addRow").addEventListener("click", () => this.addPlayerRow());
+        document.getElementById("addRow").addEventListener("click", () => {
+            this.addPlayerRow();
+            this.displayHalfByeSelection(); // update selector
+        });
+
         document.getElementById("cancelAll").addEventListener("click", () => this.resetTournament());
+
         document.getElementById("creaTurni").addEventListener("click", () => this.createTournament());
     }
+
 
     // Aggiunge una nuova riga per inserire un giocatore
     addPlayerRow() {
@@ -24,6 +30,7 @@ class TournamentManager {
             <input type="number" placeholder="Punteggio Elo" class="playerElo">
         `;
         playerList.appendChild(newRow);
+        this.displayHalfByeSelection(); // Refresh selector
     }
 
     // Reset del torneo
@@ -46,7 +53,9 @@ class TournamentManager {
                     elo: Number(elo),
                     punteggioTorneo: 0,
                     punteggioSpareggio: 0,
-                    receivedBye: false
+                    receivedBye: false,
+                    halfByeNextRound: row.dataset.halfBye === "true",
+                    colorHistory: [] 
                 });
             }
         });
@@ -71,8 +80,16 @@ class TournamentManager {
     }
 
     // Genera i turni del torneo
-generateRounds(players) {
-    const sorted = this.sortPlayers(players);
+    generateRounds(players) {
+    // Filter out players with halfByeNextRound = true
+    const halfByePlayers = players.filter(p => p.halfByeNextRound);
+    halfByePlayers.forEach(p => {
+        p.punteggioTorneo += 0.5;
+        p.halfByeNextRound = false; // Reset for future rounds
+    });
+
+    // Work with the remaining players only
+    let sorted = this.sortPlayers(players.filter(p => !halfByePlayers.includes(p)));
     const groups = this.groupByScore(sorted);
     const rounds = [];
 
@@ -119,11 +136,45 @@ for (let scoreGroup of updatedGroups) {
             const p2 = bottomHalf[j];
             if (!this.hasBeenPaired(p1, p2)) {
                 this.recordPairing(p1, p2);
+                const whiteCount1 = p1.colorHistory.filter(c => c === "white").length;
+                const blackCount1 = p1.colorHistory.filter(c => c === "black").length;
+                const whiteCount2 = p2.colorHistory.filter(c => c === "white").length;
+                const blackCount2 = p2.colorHistory.filter(c => c === "black").length;
+
+                // Prefer alternating from previous round
+                const lastColor1 = p1.colorHistory[p1.colorHistory.length - 1];
+                const lastColor2 = p2.colorHistory[p2.colorHistory.length - 1];
+
+                let bianco, nero;
+
+                // Try to alternate and balance
+                if ((whiteCount1 - blackCount1) > (whiteCount2 - blackCount2)) {
+                bianco = p2;
+                nero = p1;
+                } else if ((whiteCount2 - blackCount2) > (whiteCount1 - blackCount1)) {
+    bianco = p1;
+    nero = p2;
+                } else if (lastColor1 === "white" && lastColor2 !== "white") {
+                    bianco = p2;
+                    nero = p1;
+                } else if (lastColor2 === "white" && lastColor1 !== "white") {
+                    bianco = p1;
+                    nero = p2;
+                } else {
+                    // Default to higher Elo gets white
+                    bianco = p1.elo >= p2.elo ? p1 : p2;
+                    nero = bianco === p1 ? p2 : p1;
+                }
+
+                bianco.colorHistory.push("white");
+                nero.colorHistory.push("black");
+
                 rounds.push({
-                    bianco: p1,
-                    nero: p2,
-                    risultato: null
+                bianco,
+                nero,
+                risultato: null
                 });
+
                 bottomHalf.splice(j, 1);
                 paired = true;
                 break;
@@ -214,6 +265,76 @@ groupByScore(players) {
         resultsDiv.appendChild(table);
     }
 
+displayHalfByeSelection() {
+    const resultsDiv = document.getElementById("results");
+    let old = document.getElementById("halfByeContainer");
+    if (old) old.remove();
+
+    const container = document.createElement("div");
+    container.id = "halfByeContainer";
+    container.className = "halfByeSelector";
+
+    const title = document.createElement("h3");
+    title.textContent = "Half bye:";
+    container.appendChild(title);
+
+    if (this.players.length > 0) {
+        // Tournament started: show from this.players
+        this.players.forEach((player, index) => {
+            const checkbox = document.createElement("input");
+            checkbox.type = "checkbox";
+            checkbox.id = `halfBye-${index}`;
+            checkbox.checked = !!player.halfByeNextRound;
+
+            checkbox.addEventListener("change", (e) => {
+                player.halfByeNextRound = e.target.checked;
+            });
+
+            const label = document.createElement("label");
+            label.htmlFor = checkbox.id;
+            label.textContent = player.name;
+
+            const line = document.createElement("div");
+            line.appendChild(checkbox);
+            line.appendChild(label);
+
+            container.appendChild(line);
+        });
+    } else {
+        // Tournament not started: get from playerRows
+        const rows = document.querySelectorAll(".playerRow");
+
+        rows.forEach((row, index) => {
+            const nameInput = row.querySelector(".playerName");
+            const name = nameInput.value.trim();
+            if (!name) return;
+
+            const checkbox = document.createElement("input");
+            checkbox.type = "checkbox";
+            checkbox.id = `halfBye-${index}`;
+            checkbox.checked = row.dataset.halfBye === "true";
+
+            checkbox.addEventListener("change", (e) => {
+                row.dataset.halfBye = e.target.checked ? "true" : "false";
+            });
+
+            const label = document.createElement("label");
+            label.htmlFor = checkbox.id;
+            label.textContent = name;
+
+            const line = document.createElement("div");
+            line.appendChild(checkbox);
+            line.appendChild(label);
+
+            container.appendChild(line);
+        });
+    }
+
+    resultsDiv.appendChild(container);
+}
+
+
+
     // Visualizza i turni del torneo
     displayRounds(rounds) {
         const resultsDiv = document.getElementById("results");
@@ -222,34 +343,48 @@ groupByScore(players) {
         header.textContent = `Turno ${this.currentRound + 1}`;
         resultsDiv.appendChild(header);
 
-        const ul = document.createElement("ul");
+const roundContainer = document.createElement("div");
+roundContainer.className = "roundContainer";
 
-        rounds.forEach((match, index) => {
-            const li = document.createElement("li");
-            if (match.nero.name === "BYE") {
-            li.textContent = `${match.bianco.name} ha un BYE`;
-            } else {
-                li.innerHTML = `
-                ${match.bianco.name} vs ${match.nero.name}
-                <select data-index="${index}">
-                    <option value="">Risultato</option>
-                    <option value="1-0">${match.bianco.name} vince</option>
-                    <option value="0-1">${match.nero.name} vince</option>
-                    <option value="½-½">Pareggio</option>
-                </select>
-            `;
-        }
+rounds.forEach((match, index) => {
+    const matchCard = document.createElement("div");
+    matchCard.className = "matchCard";
 
-            ul.appendChild(li);
-        });
+    if (match.nero.name === "BYE") {
+        matchCard.classList.add("byeCard");
+        matchCard.textContent = `${match.bianco.name} ha un BYE`;
+    } else {
+        matchCard.innerHTML = `
+            <div class="playerRowMatch">
+                <span class="whitePlayer">${match.bianco.name}</span>
+                <span class="vsText">vs</span>
+                <span class="blackPlayer">${match.nero.name}</span>
+            </div>
+            <select data-index="${index}" class="resultSelect">
+                <option value="">Risultato</option>
+                <option value="1-0">${match.bianco.name} vince</option>
+                <option value="0-1">${match.nero.name} vince</option>
+                <option value="½-½">Pareggio</option>
+            </select>
+        `;
+    }
 
-        resultsDiv.appendChild(ul);
+    roundContainer.appendChild(matchCard);
+});
 
-        // Add button for next round
-        const nextBtn = document.createElement("button");
-        nextBtn.textContent = "Crea turno successivo";
-        nextBtn.addEventListener("click", () => this.nextRound());
-        resultsDiv.appendChild(nextBtn);
+resultsDiv.appendChild(roundContainer);
+
+// Remove previous button if it exists
+const oldButton = document.getElementById("nextRoundButton");
+if (oldButton) oldButton.remove();
+
+// Add new button
+const nextBtn = document.createElement("button");
+nextBtn.id = "nextRoundButton";
+nextBtn.className = "next-round-button";
+nextBtn.textContent = "Crea turno successivo";
+nextBtn.addEventListener("click", () => this.nextRound());
+resultsDiv.appendChild(nextBtn);
     }
 
 
@@ -264,6 +399,7 @@ createTournament() {
     this.currentRound = 0;
 
     this.displayRanking(this.players);
+    this.displayHalfByeSelection();
 
     const round = this.generateRounds(this.players);
     this.rounds.push(round);
@@ -308,6 +444,7 @@ nextRound() {
     this.rounds.push(newRound);
 
     this.displayRounds(newRound);
+    this.displayHalfByeSelection();
 }
 
 getPairKey(player1, player2) {
@@ -321,6 +458,9 @@ hasBeenPaired(p1, p2) {
 
 recordPairing(p1, p2) {
     this.pairHistory.add(this.getPairKey(p1, p2));
+
+    if (!p1.colorHistory) p1.colorHistory = [];
+    if (!p2.colorHistory) p2.colorHistory = [];
 }
 
 
@@ -328,5 +468,6 @@ recordPairing(p1, p2) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    new TournamentManager();
+    const tm = new TournamentManager();
+    tm.displayHalfByeSelection(); // show initial selector
 });
