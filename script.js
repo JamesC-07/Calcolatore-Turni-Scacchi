@@ -128,63 +128,48 @@ for (let scoreGroup of updatedGroups) {
     const topHalf = group.slice(0, half);
     const bottomHalf = group.slice(half);
 
-    for (let i = 0; i < topHalf.length; i++) {
-        const p1 = topHalf[i];
-        let paired = false;
+    const alternateWhiteStartsWhite = Math.random() < 0.5;
 
-        for (let j = 0; j < bottomHalf.length; j++) {
-            const p2 = bottomHalf[j];
-            if (!this.hasBeenPaired(p1, p2)) {
-                this.recordPairing(p1, p2);
-                const whiteCount1 = p1.colorHistory.filter(c => c === "white").length;
-                const blackCount1 = p1.colorHistory.filter(c => c === "black").length;
-                const whiteCount2 = p2.colorHistory.filter(c => c === "white").length;
-                const blackCount2 = p2.colorHistory.filter(c => c === "black").length;
+for (let i = 0; i < topHalf.length; i++) {
+    const p1 = topHalf[i];
+    let paired = false;
 
-                // Prefer alternating from previous round
-                const lastColor1 = p1.colorHistory[p1.colorHistory.length - 1];
-                const lastColor2 = p2.colorHistory[p2.colorHistory.length - 1];
+    for (let j = 0; j < bottomHalf.length; j++) {
+        const p2 = bottomHalf[j];
+        if (!this.hasBeenPaired(p1, p2)) {
+            this.recordPairing(p1, p2);
 
-                let bianco, nero;
+            let bianco, nero;
 
-                // Try to alternate and balance
-                if ((whiteCount1 - blackCount1) > (whiteCount2 - blackCount2)) {
+            // Alternate colors starting from random
+            if ((i % 2 === 0) === alternateWhiteStartsWhite) {
+                bianco = p1;
+                nero = p2;
+            } else {
                 bianco = p2;
                 nero = p1;
-                } else if ((whiteCount2 - blackCount2) > (whiteCount1 - blackCount1)) {
-    bianco = p1;
-    nero = p2;
-                } else if (lastColor1 === "white" && lastColor2 !== "white") {
-                    bianco = p2;
-                    nero = p1;
-                } else if (lastColor2 === "white" && lastColor1 !== "white") {
-                    bianco = p1;
-                    nero = p2;
-                } else {
-                    // Default to higher Elo gets white
-                    bianco = p1.elo >= p2.elo ? p1 : p2;
-                    nero = bianco === p1 ? p2 : p1;
-                }
+            }
 
-                bianco.colorHistory.push("white");
-                nero.colorHistory.push("black");
+            bianco.colorHistory.push("white");
+            nero.colorHistory.push("black");
 
-                rounds.push({
+            rounds.push({
                 bianco,
                 nero,
                 risultato: null
-                });
+            });
 
-                bottomHalf.splice(j, 1);
-                paired = true;
-                break;
-            }
-        }
-
-        if (!paired) {
-            unpaired.push(p1);
+            bottomHalf.splice(j, 1);
+            paired = true;
+            break;
         }
     }
+
+    if (!paired) {
+        unpaired.push(p1);
+    }
+}
+
 
     // Any leftover from bottomHalf also go to unpaired
     unpaired.push(...bottomHalf);
