@@ -239,15 +239,22 @@ groupByScore(players) {
             const row = document.createElement("tr");
             row.innerHTML = `
                 <td>${index + 1}</td>
-                <td>${player.name}</td>
+                <td><a href="#" class="playerLink" data-name="${player.name}">${player.name}</a></td>
                 <td>${player.elo}</td>
                 <td>${player.punteggioTorneo}</td>
                 <td>${player.punteggioSpareggio}</td>
             `;
             table.appendChild(row);
         });
-
         resultsDiv.appendChild(table);
+        document.querySelectorAll(".playerLink").forEach(link => {
+    link.addEventListener("click", (e) => {
+        e.preventDefault();
+        const playerName = e.target.dataset.name;
+        this.showPlayerDetails(playerName);
+    });
+});
+
     }
 
 displayHalfByeSelection() {
@@ -391,6 +398,41 @@ createTournament() {
     this.displayRounds(round);
 }
 
+showPlayerDetails(name) {
+    const player = this.players.find(p => p.name === name);
+    if (!player) return;
+
+    let html = `<h2>${player.name}</h2>`;
+    html += `<p><strong>Elo:</strong> ${player.elo}</p>`;
+    html += `<p><strong>Punti torneo:</strong> ${player.punteggioTorneo}</p>`;
+    html += `<p><strong>Buchholz:</strong> ${player.punteggioSpareggio}</p>`;
+
+    html += `<h3>Partite:</h3>`;
+    if (!player.opponents || player.opponents.length === 0) {
+        html += `<p>Nessuna partita ancora.</p>`;
+    } else {
+        html += `<ul>`;
+        player.opponents.forEach((opp, index) => {
+            const round = this.rounds
+                .flat()
+                .find(m => (m.bianco === player && m.nero === opp) || (m.nero === player && m.bianco === opp));
+            const color = round.bianco === player ? "Bianco" : "Nero";
+            const result = round.risultato || "Non ancora giocata";
+            html += `<li>${color} vs ${opp.name} — <strong>${result}</strong></li>`;
+        });
+        html += `</ul>`;
+    }
+
+    document.getElementById("playerDetails").innerHTML = html;
+    document.getElementById("playerModal").classList.remove("hidden");
+
+    // Close handler
+    document.getElementById("closeModal").onclick = () => {
+        document.getElementById("playerModal").classList.add("hidden");
+    };
+}
+
+
     processResults() {
     const selects = document.querySelectorAll("select[data-index]");
     const currentRound = this.rounds[this.currentRound];
@@ -406,16 +448,22 @@ createTournament() {
 
         if (result === "1-0") {
             white.punteggioTorneo += 1;
-            white.punteggioSpareggio += black.elo;
         } else if (result === "0-1") {
             black.punteggioTorneo += 1;
-            black.punteggioSpareggio += white.elo;
         } else if (result === "½-½") {
             white.punteggioTorneo += 0.5;
             black.punteggioTorneo += 0.5;
-            white.punteggioSpareggio += black.elo / 2;
-            black.punteggioSpareggio += white.elo / 2;
         }
+        // Reset spareggio
+        this.players.forEach(player => {
+            player.punteggioSpareggio = 0;
+
+            if (!player.opponents) player.opponents = [];
+            for (const opp of player.opponents) {
+                player.punteggioSpareggio += opp.punteggioTorneo;
+            }
+        });
+
     });
 }
 
@@ -444,11 +492,12 @@ hasBeenPaired(p1, p2) {
 recordPairing(p1, p2) {
     this.pairHistory.add(this.getPairKey(p1, p2));
 
-    if (!p1.colorHistory) p1.colorHistory = [];
-    if (!p2.colorHistory) p2.colorHistory = [];
+    if (!p1.opponents) p1.opponents = [];
+    if (!p2.opponents) p2.opponents = [];
+
+    p1.opponents.push(p2);
+    p2.opponents.push(p1);
 }
-
-
 
 }
 
