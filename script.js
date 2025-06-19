@@ -54,6 +54,7 @@ class TournamentManager {
                     punteggioTorneo: 0,
                     punteggioSpareggio: 0,
                     receivedBye: false,
+                    ritirato: false,
                     halfByeNextRound: row.dataset.halfBye === "true",
                     colorHistory: [] 
                 });
@@ -81,25 +82,27 @@ class TournamentManager {
 
     // Genera i turni del torneo
     generateRounds(players) {
-    // Filter out players with halfByeNextRound = true
-    const halfByePlayers = players.filter(p => p.halfByeNextRound);
+    // Escludi i ritirati
+    const activePlayers = players.filter(p => !p.ritirato);
+
+    // Gestione half bye: assegna 0.5 e resetta flag
+    const halfByePlayers = activePlayers.filter(p => p.halfByeNextRound);
     halfByePlayers.forEach(p => {
         p.punteggioTorneo += 0.5;
-        p.halfByeNextRound = false; // Reset for future rounds
+        p.halfByeNextRound = false; // resetta per i turni successivi
     });
 
-    // Work with the remaining players only
-    let sorted = this.sortPlayers(players.filter(p => !halfByePlayers.includes(p)));
+    // Rimuovi i giocatori con half bye dal pairing del turno
+    let sorted = this.sortPlayers(activePlayers.filter(p => !halfByePlayers.includes(p)));
     const groups = this.groupByScore(sorted);
     const rounds = [];
 
     const unpaired = [];
 
-    // Track who already got BYE
+    // Candidati per BYE (solo se dispari)
     const byeCandidates = sorted.filter(p => !p.receivedBye);
     const totalPlayers = sorted.length;
 
-    // Assign BYE to lowest-ranked player who hasn’t received one
     if (totalPlayers % 2 !== 0) {
         const byePlayer = byeCandidates[byeCandidates.length - 1];
         rounds.push({
@@ -112,94 +115,117 @@ class TournamentManager {
         sorted.splice(sorted.indexOf(byePlayer), 1);
     }
 
-    // Rebuild groups after BYE removal
+    // Ricostruisci i gruppi dopo l'assegnazione del BYE
     const updatedGroups = this.groupByScore(sorted);
 
-for (let scoreGroup of updatedGroups) {
-    let group = [...scoreGroup];
+    for (let scoreGroup of updatedGroups) {
+        let group = [...scoreGroup];
 
-    // If odd, float lowest player down
-    if (group.length % 2 !== 0) {
-        const floater = group.pop();
-        unpaired.push(floater);
-    }
+        if (group.length % 2 !== 0) {
+            const floater = group.pop();
+            unpaired.push(floater);
+        }
 
-    const half = group.length / 2;
-    const topHalf = group.slice(0, half);
-    const bottomHalf = group.slice(half);
+        const half = group.length / 2;
+        const topHalf = group.slice(0, half);
+        const bottomHalf = group.slice(half);
 
-    const alternateWhiteStartsWhite = Math.random() < 0.5;
+        const alternateWhiteStartsWhite = Math.random() < 0.5;
 
-for (let i = 0; i < topHalf.length; i++) {
-    const p1 = topHalf[i];
-    let paired = false;
+        for (let i = 0; i < topHalf.length; i++) {
+            const p1 = topHalf[i];
+            let paired = false;
 
-    for (let j = 0; j < bottomHalf.length; j++) {
-        const p2 = bottomHalf[j];
-        if (!this.hasBeenPaired(p1, p2)) {
-            this.recordPairing(p1, p2);
+            for (let j = 0; j < bottomHalf.length; j++) {
+                const p2 = bottomHalf[j];
+                if (!this.hasBeenPaired(p1, p2)) {
+                    this.recordPairing(p1, p2);
 
-            let bianco, nero;
+                    const whiteCount1 = p1.colorHistory.filter(c => c === 'white').length;
+                    const blackCount1 = p1.colorHistory.filter(c => c === 'black').length;
+                    const whiteCount2 = p2.colorHistory.filter(c => c === 'white').length;
+                    const blackCount2 = p2.colorHistory.filter(c => c === 'black').length;
 
-            // Alternate colors starting from random
-            if ((i % 2 === 0) === alternateWhiteStartsWhite) {
-                bianco = p1;
-                nero = p2;
-            } else {
-                bianco = p2;
-                nero = p1;
+                    const prefersWhite1 = blackCount1 > whiteCount1;
+                    const prefersWhite2 = blackCount2 > whiteCount2;
+
+                    let bianco, nero;
+
+                    if (prefersWhite1 && !prefersWhite2) {
+                        bianco = p1;
+                        nero = p2;
+                    } else if (prefersWhite2 && !prefersWhite1) {
+                        bianco = p2;
+                        nero = p1;
+                    } else {
+                        // fallback random
+                        if (Math.random() < 0.5) {
+                            bianco = p1;
+                            nero = p2;
+                        } else {
+                            bianco = p2;
+                            nero = p1;
+                        }
+                    }
+
+
+                    bianco.colorHistory.push("white");
+                    nero.colorHistory.push("black");
+
+                    rounds.push({
+                        bianco,
+                        nero,
+                        risultato: null
+                    });
+
+                    bottomHalf.splice(j, 1);
+                    paired = true;
+                    break;
+                }
             }
 
-            bianco.colorHistory.push("white");
-            nero.colorHistory.push("black");
-
-            rounds.push({
-                bianco,
-                nero,
-                risultato: null
-            });
-
-            bottomHalf.splice(j, 1);
-            paired = true;
-            break;
+            if (!paired) {
+                unpaired.push(p1);
+            }
         }
+
+        // Tutti i non accoppiati restanti
+        unpaired.push(...bottomHalf);
     }
 
-    if (!paired) {
-        unpaired.push(p1);
-    }
-}
+    // Pair any remaining unpaired players
+    while (unpaired.length >= 2) {
+        const p1 = unpaired.shift();
+        let paired = false;
 
+        for (let i = 0; i < unpaired.length; i++) {
+            const p2 = unpaired[i];
+            if (!this.hasBeenPaired(p1, p2)) {
+                this.recordPairing(p1, p2);
 
-    // Any leftover from bottomHalf also go to unpaired
-    unpaired.push(...bottomHalf);
-}
-
-
-    // Try pairing leftover players from higher score groups with lower
-    for (let i = 0; i < unpaired.length; i++) {
-        const player1 = unpaired[i];
-        for (let j = i + 1; j < unpaired.length; j++) {
-            const player2 = unpaired[j];
-
-            if (!this.hasBeenPaired(player1, player2)) {
-                this.recordPairing(player1, player2);
                 rounds.push({
-                    bianco: player1,
-                    nero: player2,
+                    bianco: p1,
+                    nero: p2,
                     risultato: null
                 });
 
-                unpaired.splice(j, 1);
                 unpaired.splice(i, 1);
-                i--;
+                paired = true;
                 break;
             }
         }
+
+        if (!paired) {
+            // Nessun pairing possibile: rimettilo in fondo
+            unpaired.push(p1);
+            break; 
+        }
     }
+
 
     return rounds;
 }
+
 
 groupByScore(players) {
     const groups = new Map();
@@ -267,48 +293,64 @@ displayHalfByeSelection() {
     container.className = "halfByeSelector";
 
     const title = document.createElement("h3");
-    title.textContent = "Half bye:";
+    title.textContent = "Half bye e ritiri:";
     container.appendChild(title);
 
     if (this.players.length > 0) {
         // Tournament started: show from this.players
         this.players.forEach((player, index) => {
-            const checkbox = document.createElement("input");
-            checkbox.type = "checkbox";
-            checkbox.id = `halfBye-${index}`;
-            checkbox.checked = !!player.halfByeNextRound;
+            const line = document.createElement("div");
 
-            checkbox.addEventListener("change", (e) => {
+            const checkboxBye = document.createElement("input");
+            checkboxBye.type = "checkbox";
+            checkboxBye.id = `halfBye-${index}`;
+            checkboxBye.checked = !!player.halfByeNextRound;
+            checkboxBye.addEventListener("change", (e) => {
                 player.halfByeNextRound = e.target.checked;
             });
 
-            const label = document.createElement("label");
-            label.htmlFor = checkbox.id;
-            label.textContent = player.name;
+            const labelBye = document.createElement("label");
+            labelBye.htmlFor = checkboxBye.id;
+            labelBye.textContent = `½ ${player.name}`;
 
-            const line = document.createElement("div");
-            line.appendChild(checkbox);
-            line.appendChild(label);
+            const checkboxRit = document.createElement("input");
+            checkboxRit.type = "checkbox";
+            checkboxRit.id = `ritirato-${index}`;
+            checkboxRit.checked = !!player.ritirato;
+            checkboxRit.addEventListener("change", (e) => {
+                player.ritirato = e.target.checked;
+            });
+
+            const labelRit = document.createElement("label");
+            labelRit.htmlFor = checkboxRit.id;
+            labelRit.textContent = `Ritirato`;
+
+            line.appendChild(checkboxBye);
+            line.appendChild(labelBye);
+            line.appendChild(document.createTextNode(" "));
+            line.appendChild(checkboxRit);
+            line.appendChild(labelRit);
 
             container.appendChild(line);
         });
-    } else {
+
+            } else {
         // Tournament not started: get from playerRows
-        const rows = document.querySelectorAll(".playerRow");
+                const rows = document.querySelectorAll(".playerRow");
 
-        rows.forEach((row, index) => {
-            const nameInput = row.querySelector(".playerName");
-            const name = nameInput.value.trim();
-            if (!name) return;
+                rows.forEach((row, index) => {
+                    const nameInput = row.querySelector(".playerName");
+                    const name = nameInput.value.trim();
+                    if (!name) return;
 
-            const checkbox = document.createElement("input");
-            checkbox.type = "checkbox";
-            checkbox.id = `halfBye-${index}`;
-            checkbox.checked = row.dataset.halfBye === "true";
+                    const checkbox = document.createElement("input");
+                    checkbox.type = "checkbox";
+                    checkbox.id = `halfBye-${index}`;
+                    checkbox.checked = row.dataset.halfBye === "true";
 
-            checkbox.addEventListener("change", (e) => {
-                row.dataset.halfBye = e.target.checked ? "true" : "false";
-            });
+                    checkbox.addEventListener("change", (e) => {
+                    row.dataset.halfBye = e.target.checked ? "true" : "false";
+                    });
 
             const label = document.createElement("label");
             label.htmlFor = checkbox.id;
